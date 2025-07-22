@@ -1,0 +1,17 @@
+module.exports = {
+  root: true,
+  extends: [
+    "next/core-web-vitals",
+    "next/typescript"
+  ],
+  rules: {
+    "@typescript-eslint/no-unused-vars": "warn",
+    "@typescript-eslint/no-explicit-any": "warn",
+    "react/no-unescaped-entities": "off",
+    "prefer-const": "warn"
+  },
+  parserOptions: {
+    ecmaVersion: "latest",
+    sourceType: "module"
+  }
+};
