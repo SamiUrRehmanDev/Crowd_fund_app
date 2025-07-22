@@ -5,7 +5,59 @@ import User from './models/User.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+import CredentialsProvider from "next-auth/providers/credentials";
 
+// ...existing code (AuthService, etc.)...
+
+export const authOptions = {
+  providers: [
+    CredentialsProvider({
+      name: "Credentials",
+      credentials: {
+        email: { label: "Email", type: "email", required: true },
+        password: { label: "Password", type: "password", required: true }
+      },
+      async authorize(credentials) {
+        await connectDB();
+        const user = await User.findOne({ email: credentials.email });
+        if (!user) return null;
+        const isValid = await bcrypt.compare(credentials.password, user.password);
+        if (!isValid) return null;
+        return {
+          id: user._id.toString(),
+          email: user.email,
+          role: user.role,
+          name: user.name || user.email
+        };
+      }
+    })
+  ],
+  session: { strategy: "jwt" },
+  callbacks: {
+    async jwt({ token, user }) {
+      if (user) {
+        token.id = user.id;
+        token.email = user.email;
+        token.role = user.role;
+        token.name = user.name;
+      }
+      return token;
+    },
+    async session({ session, token }) {
+      if (token) {
+        session.user.id = token.id;
+        session.user.role = token.role;
+        session.user.name = token.name;
+      }
+      return session;
+    }
+  },
+  pages: {
+    signIn: "/auth/signin",
+    error: "/auth/error"
+  },
+  secret: process.env.NEXTAUTH_SECRET
+};
 export class AuthService {
   // Helper function to ensure user stats object exists
   static ensureUserStats(user) {

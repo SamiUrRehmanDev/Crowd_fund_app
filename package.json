@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "setup:admin": "node create-admin-simple.js"
+    "setup:admin": "node scripts/create-admin.js"
   },
   "dependencies": {
     "@auth/mongodb-adapter": "^3.7.0",
