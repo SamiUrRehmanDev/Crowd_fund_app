@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
-import connectDB from '../../../../../lib/mongodb.js';
-import { withAuth, requirePermissions } from '../../../../../lib/middleware.js';
-import User from '../../../../../lib/models/User.js';
-import Campaign from '../../../../../lib/models/Campaign.js';
-import Donation from '../../../../../lib/models/Donation.js';
-import Task from '../../../../../lib/models/Task.js';
+import connectDB from '@/lib/mongodb';
+import { withAuth } from '@/lib/middleware';
+import User from '@/lib/models/User';
+import Campaign from '@/lib/models/Campaign';
+import Donation from '@/lib/models/Donation';
+import Task from '@/lib/models/Task';
 
 async function handler(request) {
   try {
@@ -25,15 +25,27 @@ async function handler(request) {
       User.countDocuments(),
       Campaign.countDocuments(),
       Campaign.countDocuments({ status: 'live' }),
-      Donation.countDocuments(),
+      Donation.countDocuments().catch(() => 0),
       Donation.aggregate([
         { $group: { _id: null, total: { $sum: '$amount' } } }
-      ]).then(result => result[0]?.total || 0),
+      ]).then(result => result[0]?.total || 0).catch(() => 0),
       Campaign.countDocuments({ status: 'pending' }),
-      User.countDocuments({ role: 'volunteer', isActive: true }),
-      Task.countDocuments({ status: 'completed' }),
-      Task.countDocuments({ status: { $in: ['pending', 'in_progress'] } })
+      User.countDocuments({ role: 'volunteer', isActive: true }).catch(() => 0),
+      Task.countDocuments({ status: 'completed' }).catch(() => 0),
+      Task.countDocuments({ status: { $in: ['pending', 'in_progress'] } }).catch(() => 0)
     ]);
+
+    console.log('Stats calculated:', {
+      totalUsers,
+      totalCampaigns,
+      activeCampaigns,
+      totalDonations,
+      totalRevenue,
+      pendingApprovals,
+      activeVolunteers,
+      completedTasks,
+      pendingTasks
+    });
 
     // Get recent growth data (last 30 days vs previous 30 days)
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
@@ -55,11 +67,20 @@ async function handler(request) {
       Campaign.countDocuments({ 
         createdAt: { $gte: sixtyDaysAgo, $lt: thirtyDaysAgo } 
       }),
-      Donation.countDocuments({ createdAt: { $gte: thirtyDaysAgo } }),
+      Donation.countDocuments({ createdAt: { $gte: thirtyDaysAgo } }).catch(() => 0),
       Donation.countDocuments({ 
         createdAt: { $gte: sixtyDaysAgo, $lt: thirtyDaysAgo } 
-      })
+      }).catch(() => 0)
     ]);
+
+    console.log('Growth data:', {
+      newUsersLast30,
+      newUsersLast60,
+      newCampaignsLast30,
+      newCampaignsLast60,
+      donationsLast30,
+      donationsLast60
+    });
 
     // Calculate growth percentages
     const calculateGrowth = (current, previous) => {
@@ -84,6 +105,8 @@ async function handler(request) {
         donations: calculateGrowth(donationsLast30, donationsLast60)
       }
     };
+
+    console.log('Final stats response:', stats);
 
     return NextResponse.json(stats);
 

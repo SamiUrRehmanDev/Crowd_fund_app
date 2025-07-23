@@ -1,7 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
+import Campaign from '@/lib/models/Campaign';
+import User from '@/lib/models/User';
+import { withAuth } from '@/lib/middleware';
 
-export async function GET(request: NextRequest) {
+export async function GET(request) {
   try {
     await connectDB();
 
@@ -130,6 +133,162 @@ export async function GET(request: NextRequest) {
     console.error('Campaigns API error:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(request) {
+  try {
+    console.log('POST /api/campaigns called');
+    await connectDB();
+    
+    const body = await request.json();
+    console.log('Request body:', body);
+    
+    const {
+      title,
+      description,
+      category,
+      urgency,
+      goal,
+      endDate,
+      image,
+      tags,
+      organizerName,
+      organizerEmail,
+      organizerPhone,
+      location,
+      beneficiaryInfo,
+      withdrawalPlan
+    } = body;
+
+    // Find or create a system user for campaigns without auth
+    // First, try to find an existing system user
+    let systemUser = await User.findOne({ email: 'system@crowdfunding.com' });
+    
+    if (!systemUser) {
+      // Create a system user if it doesn't exist
+      console.log('Creating system user...');
+      systemUser = new User({
+        firstName: 'System',
+        lastName: 'User',
+        email: 'system@crowdfunding.com',
+        password: 'system123', // This will be hashed by the model
+        role: 'admin',
+        adminLevel: 'super', // Required for admin users
+        permissions: ['user_management', 'campaign_management'], // Add some default permissions
+        status: 'active',
+        emailVerified: true
+      });
+      
+      try {
+        await systemUser.save();
+        console.log('Created system user for campaigns successfully');
+      } catch (userError) {
+        console.error('Error creating system user:', userError);
+        throw new Error('Failed to create system user: ' + userError.message);
+      }
+    }
+
+    console.log('Using system user as creator:', systemUser._id);
+
+    // For now, we'll create a campaign with the system user as creator
+    const campaignData = {
+      title,
+      description,
+      category: category, // Already lowercase from the form
+      urgency: urgency || 'medium',
+      goalAmount: parseFloat(goal),
+      currency: 'USD',
+      createdBy: systemUser._id, // Use system user as creator
+      timeline: {
+        startDate: new Date(),
+        endDate: new Date(endDate)
+      },
+      status: 'pending', // Requires admin approval
+      moderationStatus: 'pending',
+      // Store organizer info until user system is integrated
+      organizerContact: {
+        name: organizerName,
+        email: organizerEmail,
+        phone: organizerPhone
+      }
+    };
+
+    // Add image if provided
+    if (image) {
+      campaignData.images = [{
+        url: image,
+        isPrimary: true,
+        caption: title
+      }];
+    }
+
+    // Add location if provided
+    if (location) {
+      campaignData.location = {
+        address: location
+      };
+    }
+
+    // Add organizer contact info to campaign metadata
+    campaignData.organizerContact = {
+      name: organizerName,
+      email: organizerEmail,
+      phone: organizerPhone
+    };
+
+    // Add additional information
+    if (beneficiaryInfo) {
+      campaignData.beneficiaryInfo = beneficiaryInfo;
+    }
+
+    if (withdrawalPlan) {
+      campaignData.withdrawalPlan = withdrawalPlan;
+    }
+
+    if (tags && tags.length > 0) {
+      campaignData.tags = tags;
+    }
+
+    console.log('Campaign data to create:', campaignData);
+
+    const campaign = new Campaign(campaignData);
+    console.log('Campaign instance created');
+    
+    await campaign.save();
+    console.log('Campaign saved successfully with ID:', campaign._id);
+
+    return NextResponse.json({
+      message: 'Campaign created successfully',
+      campaign: {
+        id: campaign._id,
+        title: campaign.title,
+        status: campaign.status,
+        moderationStatus: campaign.moderationStatus
+      }
+    }, { status: 201 });
+
+  } catch (error) {
+    console.error('Create campaign error:', error);
+    console.error('Error details:', {
+      name: error.name,
+      message: error.message,
+      errors: error.errors
+    });
+    
+    // Provide more specific error messages
+    let errorMessage = 'Failed to create campaign';
+    if (error.name === 'ValidationError') {
+      const validationErrors = Object.keys(error.errors).map(key => 
+        `${key}: ${error.errors[key].message}`
+      );
+      errorMessage = `Validation failed: ${validationErrors.join(', ')}`;
+    }
+    
+    return NextResponse.json(
+      { error: errorMessage },
       { status: 500 }
     );
   }

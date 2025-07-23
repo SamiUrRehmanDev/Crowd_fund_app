@@ -63,11 +63,11 @@ export default function SignIn() {
         
         // Redirect based on user role
         if (session?.user?.role === 'admin') {
-          router.push('/dashboard/admin');
+          router.push('/admin');
         } else if (session?.user?.role === 'volunteer') {
-          router.push('/dashboard/volunteer');
+          router.push('/volunteer');
         } else if (session?.user?.role === 'donee') {
-          router.push('/dashboard/donee');
+          router.push('/donee');
         } else {
           router.push('/donor'); // Donor dashboard
         }

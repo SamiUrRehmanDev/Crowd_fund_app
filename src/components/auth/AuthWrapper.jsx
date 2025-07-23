@@ -3,6 +3,7 @@
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
+import { UserRole } from '@/types';
 export default function AuthWrapper({ 
   children, 
   requireAuth = true, 
@@ -28,16 +29,16 @@ export default function AuthWrapper({
       // Redirect based on user role if they don't have access
       switch (session.user.role) {
         case UserRole.ADMIN:
-          router.push('/dashboard/admin');
+          router.push('/admin');
           break;
         case UserRole.VOLUNTEER:
-          router.push('/dashboard/volunteer');
+          router.push('/volunteer');
           break;
         case UserRole.DONEE:
-          router.push('/dashboard/donee');
+          router.push('/donee');
           break;
         default:
-          router.push('/dashboard/donor');
+          router.push('/donor');
       }
     }
   }, [session, status, requireAuth, allowedRoles, router, redirectTo]);

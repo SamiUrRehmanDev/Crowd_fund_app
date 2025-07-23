@@ -146,8 +146,27 @@ export const AdminAuthProvider = ({ children }) => {
 
   const hasPermission = (permission) => {
     if (!user) return false;
-    if (user.adminLevel === 'super') return true; // Super admin has all permissions
-    return user.permissions && user.permissions.includes(permission);
+    
+    // Super admin has all permissions
+    if (user.adminLevel === 'super') return true;
+    
+    // Basic permissions for all admin users if they don't have specific permissions set
+    const basicAdminPermissions = ['user_management', 'campaign_management'];
+    if (user.adminLevel === 'manager') {
+      basicAdminPermissions.push('payment_management', 'analytics_view');
+    }
+    
+    // Check specific permissions first, then fall back to basic admin permissions
+    if (user.permissions && user.permissions.length > 0) {
+      return user.permissions.includes(permission);
+    }
+    
+    // Fallback: grant basic permissions to all admin users
+    if (user.role === 'admin') {
+      return basicAdminPermissions.includes(permission);
+    }
+    
+    return false;
   };
 
   const hasAdminLevel = (level) => {

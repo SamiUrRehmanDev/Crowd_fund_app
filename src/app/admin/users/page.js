@@ -25,6 +25,7 @@ import {
   UserIcon as UserSolidIcon,
   ShieldCheckIcon as ShieldCheckSolidIcon
 } from '@heroicons/react/24/solid';
+import CreateUserModal from '@/components/admin/CreateUserModal';
 
 const roleConfig = {
   admin: { color: 'red', icon: ShieldCheckSolidIcon, label: 'Admin' },
@@ -69,21 +70,37 @@ export default function UserManagementPage() {
       setLoading(true);
       const queryParams = new URLSearchParams();
       
+      // Only add non-empty filter values to avoid issues
       Object.entries(filters).forEach(([key, value]) => {
-        if (value) queryParams.append(key, value);
+        if (value !== '' && value !== null && value !== undefined) {
+          queryParams.append(key, value);
+        }
       });
+
+      console.log('Fetching users with params:', queryParams.toString());
+      console.log('Filter values:', filters);
 
       const response = await fetch(`/api/admin/users?${queryParams}`);
       if (response.ok) {
         const data = await response.json();
+        console.log('Received user data:', data);
         setUsers(data.users);
         setPagination(data.pagination);
+      } else {
+        console.error('Failed to fetch users:', response.status, response.statusText);
       }
     } catch (error) {
       console.error('Error fetching users:', error);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleUserCreated = (newUser) => {
+    // Add the new user to the beginning of the users list
+    setUsers(prev => [newUser, ...prev]);
+    // Optionally refresh the entire list to get updated pagination
+    fetchUsers();
   };
 
   const handleSearch = (value) => {
@@ -627,6 +644,13 @@ export default function UserManagementPage() {
           )}
         </div>
       </div>
+
+      {/* Create User Modal */}
+      <CreateUserModal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onUserCreated={handleUserCreated}
+      />
     </div>
   );
 }

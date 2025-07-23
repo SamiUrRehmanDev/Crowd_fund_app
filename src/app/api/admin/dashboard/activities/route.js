@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import connectDB from '../../../../../lib/mongodb.js';
-import { withAuth } from '../../../../../lib/middleware.js';
-import AuditLog from '../../../../../lib/models/AuditLog.js';
+import connectDB from '@/lib/mongodb';
+import { withAuth } from '@/lib/middleware';
+import AuditLog from '@/lib/models/AuditLog';
 
 async function handler(request) {
   try {
@@ -11,7 +11,7 @@ async function handler(request) {
     const activities = await AuditLog.find()
       .sort({ createdAt: -1 })
       .limit(20)
-      .populate('userId', 'name email')
+      .populate('performedBy', 'name email')
       .lean();
 
     // Format activities for display
@@ -21,11 +21,11 @@ async function handler(request) {
 
       switch (activity.action) {
         case 'login':
-          message = `${activity.userId?.name || 'User'} logged in`;
+          message = `${activity.performedBy?.name || 'User'} logged in`;
           type = 'success';
           break;
         case 'logout':
-          message = `${activity.userId?.name || 'User'} logged out`;
+          message = `${activity.performedBy?.name || 'User'} logged out`;
           type = 'info';
           break;
         case 'campaign_created':
@@ -58,14 +58,22 @@ async function handler(request) {
           break;
         case 'password_reset_request':
           message = `Password reset requested for: ${activity.details?.email || 'Unknown'}`;
+          type = 'info';
+          break;
+        case 'user_updated':
+          message = `User updated: ${activity.performedBy?.name || 'User'}`;
+          type = 'info';
+          break;
+        case 'user_soft_deleted':
+          message = `User deactivated: ${activity.description || 'Unknown'}`;
           type = 'warning';
           break;
-        case 'failed_login':
-          message = `Failed login attempt for: ${activity.details?.email || 'Unknown'}`;
+        case 'user_permanently_deleted':
+          message = `User permanently deleted: ${activity.description || 'Unknown'}`;
           type = 'error';
           break;
         default:
-          message = `${activity.action.replace(/_/g, ' ')} by ${activity.userId?.name || 'System'}`;
+          message = activity.description || `${activity.action} performed`;
           type = 'info';
       }
 

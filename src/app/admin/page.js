@@ -48,7 +48,13 @@ const AdminDashboard = () => {
       
       if (statsResponse.ok) {
         const statsData = await statsResponse.json();
+        console.log('Dashboard stats data:', statsData);
         setStats(statsData);
+      } else {
+        console.error('Failed to fetch stats:', statsResponse.status, statsResponse.statusText);
+        // Try to get error details
+        const errorText = await statsResponse.text();
+        console.error('Error response:', errorText);
       }
 
       // Fetch recent activities
@@ -59,6 +65,8 @@ const AdminDashboard = () => {
       if (activitiesResponse.ok) {
         const activitiesData = await activitiesResponse.json();
         setRecentActivities(activitiesData);
+      } else {
+        console.error('Failed to fetch activities:', activitiesResponse.status);
       }
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
@@ -73,32 +81,32 @@ const AdminDashboard = () => {
       value: stats.totalUsers.toLocaleString(),
       icon: FiUsers,
       color: 'blue',
-      change: '+12%',
-      changeType: 'positive'
+      change: stats.growth?.users ? `${stats.growth.users > 0 ? '+' : ''}${stats.growth.users}%` : '+0%',
+      changeType: stats.growth?.users > 0 ? 'positive' : stats.growth?.users < 0 ? 'negative' : 'neutral'
     },
     {
       title: 'Active Campaigns',
       value: stats.totalCampaigns.toLocaleString(),
       icon: FiTarget,
       color: 'green',
-      change: '+8%',
-      changeType: 'positive'
+      change: stats.growth?.campaigns ? `${stats.growth.campaigns > 0 ? '+' : ''}${stats.growth.campaigns}%` : '+0%',
+      changeType: stats.growth?.campaigns > 0 ? 'positive' : stats.growth?.campaigns < 0 ? 'negative' : 'neutral'
     },
     {
       title: 'Total Revenue',
       value: `$${stats.totalRevenue.toLocaleString()}`,
       icon: FiDollarSign,
       color: 'yellow',
-      change: '+15%',
-      changeType: 'positive'
+      change: stats.growth?.donations ? `${stats.growth.donations > 0 ? '+' : ''}${stats.growth.donations}%` : '+0%',
+      changeType: stats.growth?.donations > 0 ? 'positive' : stats.growth?.donations < 0 ? 'negative' : 'neutral'
     },
     {
       title: 'Pending Reviews',
       value: stats.pendingApprovals.toLocaleString(),
       icon: FiClock,
       color: 'red',
-      change: '-5%',
-      changeType: 'negative'
+      change: '+0%',
+      changeType: 'neutral'
     }
   ];
 
@@ -118,6 +126,20 @@ const AdminDashboard = () => {
       permission: 'campaign_management'
     },
     {
+      title: 'Task Management',
+      description: 'Assign and track volunteer tasks',
+      href: '/admin/tasks',
+      icon: FiCheckCircle,
+      permission: 'user_management' // Using user_management as it's similar
+    },
+    {
+      title: 'Payment Management',
+      description: 'Monitor transactions and payouts',
+      href: '/admin/payments',
+      icon: FiDollarSign,
+      permission: 'payment_management'
+    },
+    {
       title: 'Content Moderation',
       description: 'Review flagged content and reports',
       href: '/admin/moderation',
@@ -130,12 +152,33 @@ const AdminDashboard = () => {
       href: '/admin/analytics',
       icon: FiTrendingUp,
       permission: 'analytics_view'
+    },
+    {
+      title: 'Settings',
+      description: 'Configure platform settings',
+      href: '/admin/settings',
+      icon: FiActivity,
+      permission: 'settings_management'
+    },
+    {
+      title: 'Communications',
+      description: 'Manage notifications and messages',
+      href: '/admin/communications',
+      icon: FiActivity,
+      permission: 'user_management'
     }
   ];
 
   const filteredQuickActions = quickActions.filter(action => 
     !action.permission || hasPermission(action.permission)
   );
+
+  // Debug logging
+  console.log('User data:', user);
+  console.log('Available quick actions:', quickActions.map(a => a.title));
+  console.log('Filtered quick actions:', filteredQuickActions.map(a => a.title));
+  console.log('User permissions:', user?.permissions);
+  console.log('User admin level:', user?.adminLevel);
 
   if (loading) {
     return (

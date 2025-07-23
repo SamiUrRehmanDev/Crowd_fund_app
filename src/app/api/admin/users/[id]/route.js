@@ -2,8 +2,9 @@ import { NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import User from '@/lib/models/User';
 import AuditLog from '@/lib/models/AuditLog';
+import { withAuth } from '@/lib/middleware';
 
-export async function GET(request, { params }) {
+export const GET = withAuth(async (request, { params }) => {
   try {
     await connectDB();
     
@@ -29,9 +30,9 @@ export async function GET(request, { params }) {
       { status: 500 }
     );
   }
-}
+});
 
-export async function PUT(request, { params }) {
+export const PUT = withAuth(async (request, { params }) => {
   try {
     await connectDB();
     
@@ -112,9 +113,9 @@ export async function PUT(request, { params }) {
       { status: 500 }
     );
   }
-}
+});
 
-export async function DELETE(request, { params }) {
+export const DELETE = withAuth(async (request, { params }) => {
   try {
     await connectDB();
     
@@ -177,4 +178,4 @@ export async function DELETE(request, { params }) {
       { status: 500 }
     );
   }
-}
+});

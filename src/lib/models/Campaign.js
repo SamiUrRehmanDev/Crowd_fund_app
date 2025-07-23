@@ -15,8 +15,8 @@ const campaignSchema = new mongoose.Schema({
   // Creator Information
   createdBy: { 
     type: mongoose.Schema.Types.ObjectId, 
-    ref: 'User', 
-    required: true 
+    ref: 'User',
+    required: true
   },
   beneficiary: {
     type: mongoose.Schema.Types.ObjectId,

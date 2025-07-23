@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useSession } from 'next-auth/react';
+import { useSession, signOut } from 'next-auth/react';
 import { motion } from 'framer-motion';
 import {
   ClockIcon,
@@ -76,6 +76,15 @@ export default function VolunteerDashboard() {
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
+                className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 transition-colors"
+                onClick={() => window.location.href = '/profile'}
+              >
+                <UserGroupIcon className="w-5 h-5 mr-2" />
+                Profile
+              </motion.button>
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
                 className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-purple-600 hover:bg-purple-700 transition-colors"
                 onClick={() => window.location.href = '/volunteer/tasks'}
               >
@@ -90,6 +99,14 @@ export default function VolunteerDashboard() {
                   </span>
                 )}
               </div>
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className="inline-flex items-center px-3 py-2 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-white hover:bg-red-50 transition-colors"
+                onClick={() => signOut({ callbackUrl: '/' })}
+              >
+                Logout
+              </motion.button>
             </div>
           </div>
         </div>

@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import bcrypt from 'bcryptjs';
 
 const userSchema = new mongoose.Schema({
   // Basic Information
@@ -192,9 +193,25 @@ userSchema.methods.resetLoginAttempts = function() {
   return this.save();
 };
 
+// Password comparison method
+userSchema.methods.comparePassword = async function(candidatePassword) {
+  return bcrypt.compare(candidatePassword, this.password);
+};
+
 // Middleware
-userSchema.pre('save', function(next) {
+userSchema.pre('save', async function(next) {
   this.updatedAt = new Date();
+  
+  // Hash password if it's new or modified
+  if (this.isNew || this.isModified('password')) {
+    try {
+      const salt = await bcrypt.genSalt(10);
+      this.password = await bcrypt.hash(this.password, salt);
+    } catch (error) {
+      return next(error);
+    }
+  }
+  
   next();
 });
 
