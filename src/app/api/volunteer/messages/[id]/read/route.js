@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
+import connectDB from '@/lib/mongodb';
+import Message from '@/lib/models/Message';
 
 export async function POST(request, { params }) {
   try {
@@ -12,15 +14,44 @@ export async function POST(request, { params }) {
 
     const { id } = params;
 
-    // Mock message read marking - replace with actual database logic
-    console.log(`Volunteer ${session.user.id} marked message ${id} as read`);
+    if (!id) {
+      return NextResponse.json({ error: 'Message ID is required' }, { status: 400 });
+    }
 
-    return NextResponse.json({ 
-      success: true, 
-      message: 'Message marked as read' 
+    await connectDB();
+
+    // Find and update the message
+    const message = await Message.findOneAndUpdate(
+      { 
+        _id: id, 
+        recipient: session.user.id 
+      },
+      { 
+        isRead: true, 
+        readAt: new Date() 
+      },
+      { new: true }
+    );
+
+    if (!message) {
+      return NextResponse.json({ error: 'Message not found' }, { status: 404 });
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'Message marked as read',
+      messageData: {
+        id: message._id.toString(),
+        isRead: message.isRead,
+        readAt: message.readAt
+      }
     });
+
   } catch (error) {
     console.error('Message read error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ 
+      error: 'Internal server error',
+      details: error.message 
+    }, { status: 500 });
   }
 }

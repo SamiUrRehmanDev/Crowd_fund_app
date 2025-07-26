@@ -1,9 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import connectDB from '@/lib/mongodb';
+import Notification from '@/lib/models/Notification';
 
-export async function GET(request: NextRequest) {
+export async function GET(request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session) {
@@ -12,97 +13,37 @@ export async function GET(request: NextRequest) {
 
     await connectDB();
 
-    // Mock notifications - In a real app, this would query a Notifications model
-    const notifications = [
-      {
-        id: 'notif_001',
-        type: 'donation_received',
-        title: 'Your donation was successful',
-        message: 'Your $100 donation to "Emergency Surgery for Maria Lopez" has been processed successfully.',
-        campaignId: 'camp_001',
-        campaignTitle: 'Emergency Surgery for Maria Lopez',
-        amount: 100,
-        isRead: false,
-        createdAt: '2024-06-28T10:30:00Z',
-        icon: 'CheckCircleIcon',
-        color: 'green'
-      },
-      {
-        id: 'notif_002',
-        type: 'campaign_update',
-        title: 'Campaign Update',
-        message: 'Maria\'s surgery has been scheduled for next Monday. Thank you for your support!',
-        campaignId: 'camp_001',
-        campaignTitle: 'Emergency Surgery for Maria Lopez',
-        isRead: false,
-        createdAt: '2024-06-28T08:15:00Z',
-        icon: 'InformationCircleIcon',
-        color: 'blue'
-      },
-      {
-        id: 'notif_003',
-        type: 'milestone_reached',
-        title: 'Milestone Reached!',
-        message: 'The campaign "Clean Water Project for Village" has reached 50% of its goal!',
-        campaignId: 'camp_003',
-        campaignTitle: 'Clean Water Project for Village',
-        milestone: 50,
-        isRead: true,
-        createdAt: '2024-06-27T16:45:00Z',
-        icon: 'TrophyIcon',
-        color: 'yellow'
-      },
-      {
-        id: 'notif_004',
-        type: 'proposal_status',
-        title: 'Proposal Approved',
-        message: 'Your case proposal "Medical Treatment for Cancer Patient" has been approved and is now live as a campaign.',
-        proposalId: 'prop_1234567890',
-        campaignId: 'camp_007',
-        isRead: true,
-        createdAt: '2024-06-25T14:20:00Z',
-        icon: 'CheckBadgeIcon',
-        color: 'green'
-      },
-      {
-        id: 'notif_005',
-        type: 'favorite_campaign_update',
-        title: 'Favorite Campaign Update',
-        message: 'One of your favorite campaigns "Animal Shelter Emergency Fund" received a large donation.',
-        campaignId: 'camp_004',
-        campaignTitle: 'Animal Shelter Emergency Fund',
-        isRead: true,
-        createdAt: '2024-06-24T11:30:00Z',
-        icon: 'HeartIcon',
-        color: 'red'
-      },
-      {
-        id: 'notif_006',
-        type: 'payment_method',
-        title: 'Payment Method Added',
-        message: 'You have successfully added a new payment method ending in 1234.',
-        paymentMethodLast4: '1234',
-        isRead: true,
-        createdAt: '2024-06-23T09:15:00Z',
-        icon: 'CreditCardIcon',
-        color: 'blue'
-      },
-      {
-        id: 'notif_007',
-        type: 'receipt_available',
-        title: 'Donation Receipt Available',
-        message: 'Your donation receipt for $75 is now available for download.',
-        donationId: 'pi_5566778899',
-        amount: 75,
-        campaignTitle: 'Animal Shelter Emergency Fund',
-        isRead: true,
-        createdAt: '2024-06-22T15:00:00Z',
-        icon: 'DocumentIcon',
-        color: 'gray'
-      }
-    ];
+    // Get real notifications from database
+    const notifications = await Notification.find({
+      recipient: session.user.id,
+      recipientRole: 'donor'
+    })
+    .populate('campaign', 'title')
+    .populate('donation', 'amount')
+    .sort({ createdAt: -1 })
+    .limit(50); // Limit to last 50 notifications
 
-    return NextResponse.json({ notifications }, { status: 200 });
+    // Format notifications for frontend
+    const formattedNotifications = notifications.map(notification => ({
+      id: notification._id,
+      type: notification.type,
+      title: notification.title,
+      message: notification.message,
+      campaignId: notification.campaign?._id,
+      campaignTitle: notification.campaign?.title || notification.metadata?.campaignTitle,
+      amount: notification.metadata?.amount,
+      milestone: notification.metadata?.milestone,
+      paymentMethodLast4: notification.metadata?.paymentMethodLast4,
+      donationId: notification.metadata?.donationId,
+      isRead: notification.isRead,
+      createdAt: notification.createdAt,
+      icon: notification.icon,
+      color: notification.color,
+      timeAgo: notification.timeAgo,
+      actionUrl: notification.actionUrl
+    }));
+
+    return NextResponse.json({ notifications: formattedNotifications }, { status: 200 });
 
   } catch (error) {
     console.error('Notifications API error:', error);
@@ -113,32 +54,71 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function PATCH(request: NextRequest) {
+export async function PATCH(request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { notificationId, action } = await request.json();
+    const body = await request.json();
+    const { notificationId, action } = body;
 
-    if (!notificationId || !action) {
+    if (!action) {
       return NextResponse.json(
-        { error: 'Missing required fields' },
+        { error: 'Action is required' },
         { status: 400 }
       );
     }
 
     await connectDB();
 
-    // In a real app, this would update the notification in the database
     if (action === 'mark_read') {
-      // await Notification.findByIdAndUpdate(notificationId, { isRead: true });
+      if (!notificationId) {
+        return NextResponse.json(
+          { error: 'Notification ID is required for mark_read action' },
+          { status: 400 }
+        );
+      }
+      
+      const notification = await Notification.findOneAndUpdate(
+        { 
+          _id: notificationId, 
+          recipient: session.user.id 
+        },
+        { 
+          isRead: true, 
+          readAt: new Date(),
+          updatedAt: new Date()
+        },
+        { new: true }
+      );
+
+      if (!notification) {
+        return NextResponse.json(
+          { error: 'Notification not found' },
+          { status: 404 }
+        );
+      }
+
       return NextResponse.json({ 
-        message: 'Notification marked as read' 
+        message: 'Notification marked as read',
+        notification 
       }, { status: 200 });
+      
     } else if (action === 'mark_all_read') {
-      // await Notification.updateMany({ userId: session.user.id }, { isRead: true });
+      await Notification.updateMany(
+        { 
+          recipient: session.user.id,
+          isRead: false 
+        }, 
+        { 
+          isRead: true,
+          readAt: new Date(),
+          updatedAt: new Date()
+        }
+      );
+      
       return NextResponse.json({ 
         message: 'All notifications marked as read' 
       }, { status: 200 });
@@ -158,7 +138,7 @@ export async function PATCH(request: NextRequest) {
   }
 }
 
-export async function DELETE(request: NextRequest) {
+export async function DELETE(request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session) {
@@ -177,8 +157,17 @@ export async function DELETE(request: NextRequest) {
 
     await connectDB();
 
-    // In a real app, this would delete the notification from the database
-    // await Notification.findByIdAndDelete(notificationId);
+    const deletedNotification = await Notification.findOneAndDelete({
+      _id: notificationId,
+      recipient: session.user.id
+    });
+
+    if (!deletedNotification) {
+      return NextResponse.json(
+        { error: 'Notification not found' },
+        { status: 404 }
+      );
+    }
 
     return NextResponse.json({ 
       message: 'Notification deleted successfully' 

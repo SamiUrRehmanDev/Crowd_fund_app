@@ -1,10 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import connectDB from '@/lib/mongodb';
-import User from '@/models/User';
+import User from '@/lib/models/User';
 
-export async function PUT(request: NextRequest) {
+export async function PUT(request) {
   try {
     const session = await getServerSession(authOptions);
     

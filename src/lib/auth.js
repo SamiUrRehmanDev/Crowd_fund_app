@@ -206,9 +206,13 @@ export class AuthService {
         throw new Error('Access denied. Admin privileges required.');
       }
 
-      // Check if account is active - prioritize isActive field for admin users
+      // Check if account is active - check both isActive and status fields
       if (!user.isActive) {
         throw new Error('Account is not active');
+      }
+      
+      if (user.status !== 'active') {
+        throw new Error('Account status is not active');
       }
 
       // Ensure stats exists and update last activity
@@ -251,8 +255,16 @@ export class AuthService {
       await connectDB();
       const user = await User.findById(decoded.userId).select('-password');
       
-      if (!user || user.role !== 'admin' || user.status !== 'active') {
+      if (!user || user.role !== 'admin') {
         throw new Error('Unable to refresh token');
+      }
+      
+      if (!user.isActive) {
+        throw new Error('Account is not active');
+      }
+      
+      if (user.status !== 'active') {
+        throw new Error('Account status is not active');
       }
 
       // Generate new token

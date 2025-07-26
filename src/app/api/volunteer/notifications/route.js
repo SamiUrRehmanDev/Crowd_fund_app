@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
+import connectDB from '@/lib/mongodb';
+import Notification from '@/lib/models/Notification';
 
-export async function GET() {
+export async function GET(request) {
   try {
     const session = await getServerSession(authOptions);
     
@@ -10,53 +12,72 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Mock notifications data - replace with actual database queries
-    const notifications = [
-      {
-        id: 'notif-1',
-        type: 'task',
-        title: 'New Medical Verification Available',
-        message: 'A new urgent medical verification task has been posted in your area. The deadline is in 2 days.',
-        timestamp: '2024-01-21T15:30:00Z',
-        dismissed: false
-      },
-      {
-        id: 'notif-2',
-        type: 'verification',
-        title: 'Verification Request Assigned',
-        message: 'You have been assigned a housing assessment verification for the Rodriguez family.',
-        timestamp: '2024-01-21T12:15:00Z',
-        dismissed: false
-      },
-      {
-        id: 'notif-3',
-        type: 'message',
-        title: 'New Message from City Medical Center',
-        message: 'You have received a thank you message regarding your recent verification work.',
-        timestamp: '2024-01-21T10:30:00Z',
-        dismissed: false
-      },
-      {
-        id: 'notif-4',
-        type: 'update',
-        title: 'Verification Report Approved',
-        message: 'Your verification report for Family Support Assessment has been approved and processed.',
-        timestamp: '2024-01-20T16:45:00Z',
-        dismissed: false
-      },
-      {
-        id: 'notif-5',
-        type: 'urgent',
-        title: 'Urgent: Missing Documentation',
-        message: 'Please upload missing evidence for your recent housing verification within 24 hours.',
-        timestamp: '2024-01-20T09:20:00Z',
-        dismissed: false
-      }
-    ];
+    await connectDB();
 
-    return NextResponse.json({ notifications });
+    const url = new URL(request.url);
+    const limit = parseInt(url.searchParams.get('limit')) || 50;
+    const type = url.searchParams.get('type');
+    const isRead = url.searchParams.get('isRead');
+
+    // Build query filter
+    const filter = { 
+      recipient: session.user.id,
+      recipientRole: 'volunteer'
+    };
+    
+    if (type && type !== 'all') {
+      filter.type = type;
+    }
+    
+    if (isRead !== null && isRead !== undefined) {
+      filter.isRead = isRead === 'true';
+    }
+
+    // Get notifications from database
+    const notifications = await Notification.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+
+    // Format notifications
+    const formattedNotifications = notifications.map(notif => ({
+      id: notif._id.toString(),
+      type: notif.type,
+      title: notif.title,
+      message: notif.message,
+      taskType: notif.metadata?.taskType,
+      isRead: notif.isRead,
+      createdAt: notif.createdAt?.toISOString(),
+      actionUrl: notif.actionUrl,
+      urgency: notif.metadata?.urgency,
+      metadata: notif.metadata
+    }));
+
+    // Get counts
+    const totalCount = await Notification.countDocuments({ 
+      recipient: session.user.id,
+      recipientRole: 'volunteer' 
+    });
+    const unreadCount = await Notification.countDocuments({ 
+      recipient: session.user.id,
+      recipientRole: 'volunteer',
+      isRead: false 
+    });
+
+    return NextResponse.json({
+      notifications: formattedNotifications,
+      pagination: {
+        total: totalCount,
+        unread: unreadCount,
+        limit,
+        hasMore: notifications.length === limit
+      }
+    });
   } catch (error) {
     console.error('Notifications API error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ 
+      error: 'Internal server error',
+      details: error.message 
+    }, { status: 500 });
   }
 }

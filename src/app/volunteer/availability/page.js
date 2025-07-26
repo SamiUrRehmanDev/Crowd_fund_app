@@ -13,7 +13,8 @@ import {
   AcademicCapIcon,
   HomeIcon,
   ShieldCheckIcon,
-  UserGroupIcon
+  UserGroupIcon,
+  ExclamationTriangleIcon
 } from '@heroicons/react/24/outline';
 import {
   CheckCircleIcon as CheckCircleSolidIcon
@@ -278,7 +279,53 @@ export default function AvailabilityPage() {
             </div>
           </div>
 
-          {/* Preferred Task Types */}
+          {/* Active Status Toggle */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-8">
+          <div className="p-6 border-b border-gray-200">
+            <h2 className="text-lg font-semibold text-gray-900 flex items-center">
+              <CheckCircleIcon className="w-5 h-5 text-green-600 mr-2" />
+              Volunteer Status
+            </h2>
+            <p className="text-sm text-gray-600 mt-1">
+              Control your availability for new task assignments
+            </p>
+          </div>
+          <div className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-medium text-gray-900">Active Status</h3>
+                <p className="text-sm text-gray-600">
+                  {preferences.isActive 
+                    ? 'You are currently available for new tasks'
+                    : 'You are not receiving new task assignments'
+                  }
+                </p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={preferences.isActive}
+                  onChange={(e) => setPreferences(prev => ({ ...prev, isActive: e.target.checked }))}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+              </label>
+            </div>
+            {!preferences.isActive && (
+              <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <div className="flex">
+                  <ExclamationTriangleIcon className="w-5 h-5 text-yellow-400 mr-2" />
+                  <div>
+                    <h4 className="text-sm font-medium text-yellow-800">Status: Inactive</h4>
+                    <p className="text-sm text-yellow-700">
+                      You won't receive notifications for new tasks while inactive.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
           <div className="bg-white rounded-lg shadow-sm p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Preferred Task Types</h2>
             <p className="text-gray-600 mb-6">Choose the types of volunteer work you're interested in</p>

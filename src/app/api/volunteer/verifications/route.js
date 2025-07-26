@@ -1,8 +1,12 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
+import connectDB from '@/lib/mongodb';
+import Task from '@/lib/models/Task';
+import Campaign from '@/lib/models/Campaign';
+import User from '@/lib/models/User';
 
-export async function GET() {
+export async function GET(request) {
   try {
     const session = await getServerSession(authOptions);
     
@@ -10,102 +14,101 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Mock verification data - replace with actual database queries
-    const verifications = {
-      available: [
-        {
-          id: 'ver-1',
-          title: 'Medical Equipment Verification',
-          type: 'medical',
-          urgency: 'high',
-          requesterName: 'Dr. Sarah Chen',
-          location: 'General Hospital - East Wing',
-          requestDate: '2024-01-21T08:00:00Z',
-          estimatedHours: 2,
-          description: 'Verify medical equipment needs for cardiac unit expansion',
-          requirements: [
-            'Medical background preferred',
-            'Valid identification required',
-            'Ability to lift up to 25 lbs'
-          ],
-          attachments: [
-            { name: 'equipment_list.pdf', type: 'document' },
-            { name: 'facility_layout.jpg', type: 'image' }
-          ]
-        },
-        {
-          id: 'ver-2',
-          title: 'Housing Safety Assessment',
-          type: 'housing',
-          urgency: 'urgent',
-          requesterName: 'Maria Rodriguez',
-          location: '1234 Oak Street, Apt 2B',
-          requestDate: '2024-01-20T14:30:00Z',
-          estimatedHours: 3,
-          description: 'Assess housing conditions for family with young children',
-          requirements: [
-            'Safety inspection training preferred',
-            'Valid driver\'s license',
-            'Background check completed'
-          ]
-        }
-      ],
-      inProgress: [
-        {
-          id: 'ver-3',
-          title: 'Education Resource Verification',
-          type: 'education',
-          urgency: 'medium',
-          requesterName: 'Principal Johnson',
-          location: 'Lincoln Elementary School',
-          requestDate: '2024-01-19T10:15:00Z',
-          estimatedHours: 4,
-          description: 'Verify educational resources and learning material needs',
-          acceptedDate: '2024-01-20T09:00:00Z',
-          deadline: '2024-01-25T17:00:00Z'
-        }
-      ],
-      submitted: [
-        {
-          id: 'ver-4',
-          title: 'Family Support Assessment',
-          type: 'family',
-          urgency: 'medium',
-          requesterName: 'Jennifer Davis',
-          location: 'Community Center - Room 15',
-          requestDate: '2024-01-15T11:20:00Z',
-          completedDate: '2024-01-18T16:30:00Z',
-          status: 'pending-review',
-          report: {
-            status: 'verified',
-            findings: 'Family demonstrates genuine need for emergency assistance. Housing conditions are safe but overcrowded.',
-            recommendations: 'Recommend priority placement for housing assistance program.'
-          }
-        }
-      ],
-      completed: [
-        {
-          id: 'ver-5',
-          title: 'Medical Supply Verification',
-          type: 'medical',
-          urgency: 'high',
-          requesterName: 'Nurse Patricia Wong',
-          location: 'Community Health Clinic',
-          requestDate: '2024-01-10T09:45:00Z',
-          completedDate: '2024-01-12T14:20:00Z',
-          status: 'verified',
-          report: {
-            status: 'verified',
-            findings: 'All medical supplies verified as legitimate need. Clinic serving 200+ patients daily.',
-            recommendations: 'Immediate supply delivery recommended. High-priority case.'
-          }
-        }
-      ]
+    await connectDB();
+
+    const volunteerId = session.user.id;
+    const { searchParams } = new URL(request.url);
+    const status = searchParams.get('status');
+
+    // Get all verification tasks
+    const allVerifications = await Task.find({ type: 'verification' })
+      .populate('campaign', 'title organization location rating')
+      .populate('createdBy', 'name organization')
+      .populate('assignedTo', 'name')
+      .sort({ priority: -1, deadline: 1, createdAt: -1 })
+      .lean();
+
+    // Format verifications for frontend
+    const formattedVerifications = allVerifications.map(task => ({
+      id: task._id.toString(),
+      title: task.title,
+      description: task.description,
+      type: getVerificationType(task.description, task.title),
+      urgency: task.priority,
+      requesterName: task.createdBy?.name || 'Unknown',
+      organization: task.campaign?.organization || task.createdBy?.organization || 'Unknown',
+      location: task.location?.address || task.campaign?.location?.address || 'Remote',
+      requestDate: task.createdAt?.toISOString(),
+      estimatedHours: task.estimatedHours || 2,
+      deadline: task.deadline?.toISOString(),
+      requirements: task.requirements || [],
+      attachments: [], // Would be populated from task documents
+      status: task.status,
+      progress: task.progress || 0,
+      assignedTo: task.assignedTo ? {
+        id: task.assignedTo._id?.toString() || task.assignedTo.toString(),
+        name: task.assignedTo.name
+      } : null,
+      submittedAt: task.status === 'review' ? task.updatedAt?.toISOString() : null,
+      findings: task.results?.findings || [],
+      verificationStatus: task.results?.verificationStatus || 'pending',
+      contactInfo: {
+        phone: '(555) 123-4567', // This would come from campaign/user data
+        email: task.createdBy?.email || 'contact@organization.com'
+      },
+      beneficiaryInfo: {
+        name: task.campaign?.title || 'Case Request',
+        situation: task.description
+      }
+    }));
+
+    // Group by status for the frontend
+    const groupedVerifications = {
+      available: formattedVerifications.filter(v => 
+        !v.assignedTo && v.status === 'pending' && 
+        (!v.deadline || new Date(v.deadline) >= new Date())
+      ),
+      inProgress: formattedVerifications.filter(v => 
+        v.assignedTo && v.assignedTo.id === volunteerId && 
+        ['assigned', 'in_progress'].includes(v.status)
+      ),
+      completed: formattedVerifications.filter(v => 
+        v.assignedTo && v.assignedTo.id === volunteerId && 
+        v.status === 'completed'
+      ),
+      submitted: formattedVerifications.filter(v => 
+        v.assignedTo && v.assignedTo.id === volunteerId && 
+        v.status === 'review'
+      )
     };
 
-    return NextResponse.json({ verifications });
+    return NextResponse.json({
+      verifications: groupedVerifications,
+      total: formattedVerifications.length
+    });
+
   } catch (error) {
     console.error('Verifications API error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ 
+      error: 'Internal server error',
+      details: error.message 
+    }, { status: 500 });
   }
+}
+
+// Helper function to determine verification type based on content
+function getVerificationType(description, title) {
+  const text = (description + ' ' + title).toLowerCase();
+  
+  if (text.includes('medical') || text.includes('health') || text.includes('hospital')) {
+    return 'medical';
+  } else if (text.includes('housing') || text.includes('home') || text.includes('shelter')) {
+    return 'housing';
+  } else if (text.includes('education') || text.includes('school') || text.includes('student')) {
+    return 'education';
+  } else if (text.includes('family') || text.includes('household') || text.includes('members')) {
+    return 'family';
+  }
+  
+  return 'family'; // default
 }

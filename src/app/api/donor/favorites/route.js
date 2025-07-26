@@ -1,9 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import connectDB from '@/lib/mongodb';
+import User from '@/lib/models/User';
+import Campaign from '@/lib/models/Campaign';
 
-export async function GET(request: NextRequest) {
+export async function GET(request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session) {
@@ -12,51 +14,48 @@ export async function GET(request: NextRequest) {
 
     await connectDB();
 
-    // Mock favorite campaigns - In a real app, this would query a Favorites model
-    const favorites = [
-      {
-        id: 'camp_001',
-        title: 'Emergency Surgery for Maria Lopez',
-        description: 'Maria is a 35-year-old mother of three who urgently needs heart surgery.',
-        category: 'Medical',
-        urgency: 'Critical',
-        goal: 25000,
-        raised: 15750,
-        donorCount: 187,
-        endDate: '2024-09-15',
-        image: 'https://images.unsplash.com/photo-1559757148-5c350d0d3c56?w=400',
-        organizer: { name: 'Lopez Family', verified: true },
-        addedAt: '2024-06-25'
-      },
-      {
-        id: 'camp_003',
-        title: 'Clean Water Project for Village',
-        description: 'Installing a clean water system to provide safe drinking water for 500 families.',
-        category: 'Community',
-        urgency: 'High',
-        goal: 45000,
-        raised: 28900,
-        donorCount: 324,
-        endDate: '2024-10-01',
-        image: 'https://images.unsplash.com/photo-1541919329513-35f7af297129?w=400',
-        organizer: { name: 'Water for All Initiative', verified: true },
-        addedAt: '2024-06-20'
-      },
-      {
-        id: 'camp_004',
-        title: 'Animal Shelter Emergency Fund',
-        description: 'Local animal shelter needs urgent funding for medical care and housing.',
-        category: 'Animal Welfare',
-        urgency: 'Critical',
-        goal: 15000,
-        raised: 9800,
-        donorCount: 156,
-        endDate: '2024-08-15',
-        image: 'https://images.unsplash.com/photo-1601758228041-f3b2795255f1?w=400',
-        organizer: { name: 'City Animal Shelter', verified: true },
-        addedAt: '2024-06-15'
-      }
-    ];
+    // Get user with favorite campaigns
+    const user = await User.findById(session.user.id)
+      .populate({
+        path: 'favoriteCampaigns',
+        match: { 
+          status: { $in: ['approved', 'live'] },
+          deletedAt: { $exists: false }
+        },
+        select: 'title description category urgency goalAmount raisedAmount donorCount endDate images createdBy',
+        populate: {
+          path: 'createdBy',
+          select: 'firstName lastName name'
+        }
+      });
+
+    if (!user) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+
+    // Format favorite campaigns
+    const favorites = user.favoriteCampaigns.map(campaign => {
+      const daysLeft = Math.ceil((new Date(campaign.endDate) - new Date()) / (1000 * 60 * 60 * 24));
+      
+      return {
+        id: campaign._id,
+        title: campaign.title,
+        description: campaign.description,
+        category: campaign.category,
+        urgency: campaign.urgency || 'Medium',
+        goal: campaign.goalAmount,
+        raised: campaign.raisedAmount || 0,
+        donorCount: campaign.donorCount || 0,
+        daysLeft: Math.max(0, daysLeft),
+        endDate: campaign.endDate,
+        image: campaign.images?.[0]?.url || 'https://images.unsplash.com/photo-1559757148-5c350d0d3c56?w=400',
+        organizer: {
+          name: campaign.createdBy?.name || `${campaign.createdBy?.firstName} ${campaign.createdBy?.lastName}` || 'Anonymous',
+          verified: true
+        },
+        addedAt: new Date() // You might want to track when favorites were added
+      };
+    });
 
     return NextResponse.json({ favorites }, { status: 200 });
 
@@ -69,7 +68,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function POST(request: NextRequest) {
+export async function POST(request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session) {
@@ -87,12 +86,35 @@ export async function POST(request: NextRequest) {
 
     await connectDB();
 
-    // In a real app, this would:
-    // 1. Check if campaign exists
-    // 2. Check if already favorited
-    // 3. Create new favorite record
+    // Check if campaign exists
+    const campaign = await Campaign.findById(campaignId);
+    if (!campaign) {
+      return NextResponse.json(
+        { error: 'Campaign not found' },
+        { status: 404 }
+      );
+    }
 
-    // Mock response
+    // Get user and check if already favorited
+    const user = await User.findById(session.user.id);
+    if (!user) {
+      return NextResponse.json(
+        { error: 'User not found' },
+        { status: 404 }
+      );
+    }
+
+    if (user.favoriteCampaigns.includes(campaignId)) {
+      return NextResponse.json(
+        { error: 'Campaign already in favorites' },
+        { status: 400 }
+      );
+    }
+
+    // Add to favorites
+    user.favoriteCampaigns.push(campaignId);
+    await user.save();
+
     const favorite = {
       id: campaignId,
       addedAt: new Date().toISOString(),
@@ -113,7 +135,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function DELETE(request: NextRequest) {
+export async function DELETE(request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session) {
@@ -132,7 +154,19 @@ export async function DELETE(request: NextRequest) {
 
     await connectDB();
 
-    // In a real app, this would remove the favorite record from the database
+    // Remove from user's favorites
+    const user = await User.findByIdAndUpdate(
+      session.user.id,
+      { $pull: { favoriteCampaigns: campaignId } },
+      { new: true }
+    );
+
+    if (!user) {
+      return NextResponse.json(
+        { error: 'User not found' },
+        { status: 404 }
+      );
+    }
 
     return NextResponse.json({ 
       message: 'Campaign removed from favorites'

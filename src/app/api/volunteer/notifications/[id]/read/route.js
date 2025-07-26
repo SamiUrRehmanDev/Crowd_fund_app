@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 
-export async function POST(request, { params }) {
+export async function PATCH(request, { params }) {
   try {
     const session = await getServerSession(authOptions);
     
@@ -10,17 +10,18 @@ export async function POST(request, { params }) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { id } = params;
-
-    // Mock verification acceptance - replace with actual database logic
-    console.log(`Volunteer ${session.user.id} accepted verification ${id}`);
+    const notificationId = params.id;
+    
+    // In a real implementation, update notification status in database
+    console.log(`Marking notification ${notificationId} as read for volunteer ${session.user.id}`);
 
     return NextResponse.json({ 
-      success: true, 
-      message: 'Verification accepted successfully' 
+      success: true,
+      message: 'Notification marked as read'
     });
+    
   } catch (error) {
-    console.error('Verification acceptance error:', error);
+    console.error('Error marking notification as read:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

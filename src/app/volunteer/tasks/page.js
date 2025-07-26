@@ -64,12 +64,17 @@ export default function TaskDiscoveryPage() {
   const filterTasks = () => {
     let filtered = tasks;
 
-    // Search filter
+    // Search filter - enhanced with tags and keywords
     if (searchQuery) {
+      const query = searchQuery.toLowerCase();
       filtered = filtered.filter(task =>
-        task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        task.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        task.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()))
+        task.title.toLowerCase().includes(query) ||
+        task.description.toLowerCase().includes(query) ||
+        task.organization.toLowerCase().includes(query) ||
+        task.location.toLowerCase().includes(query) ||
+        (task.tags && task.tags.some(tag => tag.toLowerCase().includes(query))) ||
+        (task.keywords && task.keywords.some(keyword => keyword.toLowerCase().includes(query))) ||
+        (task.skills && task.skills.some(skill => skill.toLowerCase().includes(query)))
       );
     }
 

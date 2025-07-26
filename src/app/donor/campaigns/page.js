@@ -77,7 +77,7 @@ export default function CampaignDiscovery() {
   useEffect(() => {
     if (status === 'loading') return;
     
-    if (!session || session.user.role !== 'DONOR') {
+    if (!session || session.user.role !== 'donor') {
       router.push('/auth/signin');
       return;
     }

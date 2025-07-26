@@ -1,14 +1,16 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import connectDB from '@/lib/mongodb';
+import Donation from '@/lib/models/Donation';
+import Campaign from '@/lib/models/Campaign';
 import Stripe from 'stripe';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
   apiVersion: '2025-06-30.basil',
 });
 
-export async function POST(request: NextRequest) {
+export async function POST(request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session) {
@@ -83,7 +85,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function GET(request: NextRequest) {
+export async function GET(request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session) {
@@ -92,71 +94,30 @@ export async function GET(request: NextRequest) {
 
     await connectDB();
 
-    // Mock donation history - In a real app, this would query a Donation model
-    const donations = [
-      {
-        id: 'pi_1234567890',
-        campaignId: 'camp_001',
-        campaignTitle: 'Emergency Surgery for Maria Lopez',
-        amount: 100,
-        status: 'completed',
-        date: '2024-06-28',
-        receiptUrl: '/api/donations/pi_1234567890/receipt',
-        isRecurring: false,
-        paymentMethod: '**** 4242',
-        category: 'Medical'
-      },
-      {
-        id: 'pi_0987654321',
-        campaignId: 'camp_002',
-        campaignTitle: 'School Books for Rural Children',
-        amount: 50,
-        status: 'completed',
-        date: '2024-06-25',
-        receiptUrl: '/api/donations/pi_0987654321/receipt',
-        isRecurring: true,
-        paymentMethod: '**** 4242',
-        category: 'Education'
-      },
-      {
-        id: 'pi_1122334455',
-        campaignId: 'camp_003',
-        campaignTitle: 'Clean Water Project for Village',
-        amount: 200,
-        status: 'completed',
-        date: '2024-06-20',
-        receiptUrl: '/api/donations/pi_1122334455/receipt',
-        isRecurring: false,
-        paymentMethod: '**** 1234',
-        category: 'Community'
-      },
-      {
-        id: 'pi_5566778899',
-        campaignId: 'camp_004',
-        campaignTitle: 'Animal Shelter Emergency Fund',
-        amount: 75,
-        status: 'completed',
-        date: '2024-06-15',
-        receiptUrl: '/api/donations/pi_5566778899/receipt',
-        isRecurring: false,
-        paymentMethod: '**** 4242',
-        category: 'Animal Welfare'
-      },
-      {
-        id: 'pi_9988776655',
-        campaignId: 'camp_005',
-        campaignTitle: 'Disaster Relief for Flood Victims',
-        amount: 150,
-        status: 'completed',
-        date: '2024-06-10',
-        receiptUrl: '/api/donations/pi_9988776655/receipt',
-        isRecurring: false,
-        paymentMethod: '**** 1234',
-        category: 'Emergency'
-      }
-    ];
+    // Get user's donations from database
+    const donations = await Donation.find({
+      donor: session.user.id,
+      paymentStatus: 'completed'
+    })
+    .populate('campaign', 'title category')
+    .sort({ createdAt: -1 })
+    .limit(50); // Limit to last 50 donations
 
-    return NextResponse.json({ donations }, { status: 200 });
+    // Format donations for frontend
+    const formattedDonations = donations.map(donation => ({
+      id: donation._id,
+      campaignId: donation.campaign._id,
+      campaignTitle: donation.campaign.title,
+      amount: donation.amount,
+      status: donation.paymentStatus,
+      date: donation.createdAt.toISOString().split('T')[0],
+      receiptUrl: `/api/donations/${donation._id}/receipt`,
+      isRecurring: donation.isRecurring || false,
+      paymentMethod: `**** ${donation.paymentId ? donation.paymentId.slice(-4) : '****'}`,
+      category: donation.campaign.category
+    }));
+
+    return NextResponse.json({ donations: formattedDonations }, { status: 200 });
 
   } catch (error) {
     console.error('Donations history API error:', error);

@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
+import connectDB from '@/lib/mongodb';
+import Message from '@/lib/models/Message';
+import User from '@/lib/models/User';
 
-export async function GET() {
+export async function GET(request) {
   try {
     const session = await getServerSession(authOptions);
     
@@ -10,47 +13,90 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Mock messages data - replace with actual database queries
-    const messages = [
-      {
-        id: 'msg-1',
-        type: 'organizations',
-        sender: 'City Medical Center',
-        subject: 'Thank you for your verification work',
-        preview: 'We wanted to express our gratitude for your recent medical equipment verification...',
-        content: 'Dear Volunteer,\n\nWe wanted to express our gratitude for your recent medical equipment verification. Your thorough assessment helped us secure the necessary funding for our cardiac unit expansion. The detailed report you provided was instrumental in demonstrating our genuine needs to the donors.\n\nThanks to your efforts, we can now serve more patients in our community.\n\nBest regards,\nDr. Sarah Chen\nChief Medical Officer',
-        timestamp: '2024-01-21T10:30:00Z',
-        read: false
-      },
-      {
-        id: 'msg-2',
-        type: 'volunteers',
-        sender: 'John Martinez',
-        subject: 'Housing verification tips',
-        preview: 'Hi! I saw you recently started doing housing verifications. Here are some tips...',
-        content: 'Hi there!\n\nI saw you recently started doing housing verifications. I\'ve been doing them for over a year now and wanted to share some helpful tips:\n\n1. Always bring a flashlight for dark areas\n2. Take photos of key structural elements\n3. Check water pressure and electrical outlets\n4. Document any safety hazards immediately\n\nFeel free to reach out if you have any questions!\n\nBest,\nJohn',
-        timestamp: '2024-01-20T14:15:00Z',
-        read: true
-      },
-      {
-        id: 'msg-3',
-        type: 'system',
-        sender: 'CrowdFunding Platform',
-        subject: 'New verification guidelines',
-        preview: 'Important updates to our verification process have been implemented...',
-        content: 'Dear Volunteers,\n\nWe have implemented important updates to our verification process:\n\n• New safety protocols for housing assessments\n• Updated documentation requirements\n• Enhanced training materials available\n• Revised urgency level definitions\n\nPlease review the updated guidelines in your volunteer portal.\n\nThank you for your continued service,\nVolunteer Coordination Team',
-        timestamp: '2024-01-19T09:00:00Z',
-        read: false
-      }
-    ];
+    await connectDB();
 
-    return NextResponse.json({ messages });
+    const { searchParams } = new URL(request.url);
+    const type = searchParams.get('type');
+    const page = parseInt(searchParams.get('page')) || 1;
+    const limit = parseInt(searchParams.get('limit')) || 20;
+
+    // Build query filter
+    const filter = {
+      recipient: session.user.id,
+      isDeleted: false
+    };
+
+    if (type && type !== 'all') {
+      filter.type = type;
+    }
+
+    // Get messages from database
+    const messages = await Message.find(filter)
+      .populate('sender', 'name email role organization')
+      .populate('relatedTask', 'title type')
+      .populate('relatedCampaign', 'title organization')
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .skip((page - 1) * limit)
+      .lean();
+
+    // Format messages for frontend
+    const formattedMessages = messages.map(message => ({
+      id: message._id.toString(),
+      type: message.type,
+      sender: message.sender?.organization || message.sender?.name || 'Unknown',
+      senderRole: message.sender?.role,
+      subject: message.subject,
+      preview: message.content.length > 100 
+        ? message.content.substring(0, 100) + '...' 
+        : message.content,
+      content: message.content,
+      timestamp: message.createdAt?.toISOString(),
+      read: message.isRead,
+      priority: message.priority,
+      category: message.category,
+      attachments: message.attachments || [],
+      relatedTask: message.relatedTask ? {
+        id: message.relatedTask._id?.toString(),
+        title: message.relatedTask.title,
+        type: message.relatedTask.type
+      } : null,
+      relatedCampaign: message.relatedCampaign ? {
+        id: message.relatedCampaign._id?.toString(),
+        title: message.relatedCampaign.title,
+        organization: message.relatedCampaign.organization
+      } : null
+    }));
+
+    // Get total count for pagination
+    const totalMessages = await Message.countDocuments(filter);
+    const unreadCount = await Message.countDocuments({
+      ...filter,
+      isRead: false
+    });
+
+    return NextResponse.json({
+      messages: formattedMessages,
+      pagination: {
+        total: totalMessages,
+        page,
+        limit,
+        pages: Math.ceil(totalMessages / limit),
+        hasMore: page * limit < totalMessages
+      },
+      unreadCount
+    });
+
   } catch (error) {
     console.error('Messages API error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ 
+      error: 'Internal server error',
+      details: error.message 
+    }, { status: 500 });
   }
 }
 
+// Send a new message
 export async function POST(request) {
   try {
     const session = await getServerSession(authOptions);
@@ -59,17 +105,55 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const messageData = await request.json();
+    const { recipient, subject, content, type, category, relatedTask, relatedCampaign } = await request.json();
 
-    // Mock message sending - replace with actual database logic
-    console.log(`Volunteer ${session.user.id} sent message:`, messageData);
+    if (!recipient || !subject || !content) {
+      return NextResponse.json({ 
+        error: 'Recipient, subject, and content are required' 
+      }, { status: 400 });
+    }
 
-    return NextResponse.json({ 
-      success: true, 
-      message: 'Message sent successfully' 
+    await connectDB();
+
+    // Verify recipient exists
+    const recipientUser = await User.findById(recipient);
+    if (!recipientUser) {
+      return NextResponse.json({ error: 'Recipient not found' }, { status: 404 });
+    }
+
+    // Create new message
+    const newMessage = await Message.create({
+      subject,
+      content,
+      type: type || 'volunteers',
+      category: category || 'general',
+      sender: session.user.id,
+      recipient,
+      relatedTask,
+      relatedCampaign,
+      priority: 'medium'
     });
+
+    const populatedMessage = await Message.findById(newMessage._id)
+      .populate('sender', 'name email role organization')
+      .populate('recipient', 'name email role organization')
+      .lean();
+
+    return NextResponse.json({
+      success: true,
+      message: 'Message sent successfully',
+      messageData: {
+        id: populatedMessage._id.toString(),
+        subject: populatedMessage.subject,
+        timestamp: populatedMessage.createdAt
+      }
+    });
+
   } catch (error) {
-    console.error('Message sending error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    console.error('Message send error:', error);
+    return NextResponse.json({ 
+      error: 'Internal server error',
+      details: error.message 
+    }, { status: 500 });
   }
 }

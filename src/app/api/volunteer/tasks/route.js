@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
+import connectDB from '@/lib/mongodb';
+import Task from '@/lib/models/Task';
+import Campaign from '@/lib/models/Campaign';
+import User from '@/lib/models/User';
 
 export async function GET(request) {
   try {
@@ -10,128 +14,117 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    await connectDB();
+
     const { searchParams } = new URL(request.url);
     const category = searchParams.get('category');
     const urgency = searchParams.get('urgency');
     const location = searchParams.get('location');
     const search = searchParams.get('search');
+    const status = searchParams.get('status') || 'available';
+    const limit = parseInt(searchParams.get('limit')) || 20;
+    const page = parseInt(searchParams.get('page')) || 1;
 
-    // Mock data for volunteer tasks - replace with actual database queries
-    let tasks = [
-      {
-        id: 'task-1',
-        title: 'Medical Supply Verification',
-        organization: 'City Medical Center',
-        organizationRating: 4.9,
-        location: 'Downtown District',
-        urgency: 'high',
-        category: 'medical',
-        estimatedHours: 3,
-        deadline: '2024-01-25',
-        description: 'Verify medical supply needs for pediatric patients requiring specialized equipment',
-        requirements: ['Medical background preferred', 'Valid ID required', 'Transportation available'],
-        skillsRequired: ['Medical Knowledge', 'Attention to Detail'],
-        posted: '2024-01-20T08:00:00Z',
-        applicants: 12,
-        maxVolunteers: 2
-      },
-      {
-        id: 'task-2',
-        title: 'Education Assessment',
-        organization: 'Hope Academy',
-        organizationRating: 4.7,
-        location: 'North Side',
-        urgency: 'medium',
-        category: 'education',
-        estimatedHours: 4,
-        deadline: '2024-01-28',
-        description: 'Assess educational needs and resources for underprivileged children',
-        requirements: ['Education background', 'Background check', 'Child safety training'],
-        skillsRequired: ['Education Assessment', 'Child Communication'],
-        posted: '2024-01-19T14:30:00Z',
-        applicants: 8,
-        maxVolunteers: 3
-      },
-      {
-        id: 'task-3',
-        title: 'Housing Condition Verification',
-        organization: 'Shelter Alliance',
-        organizationRating: 4.6,
-        location: 'West District',
-        urgency: 'urgent',
-        category: 'housing',
-        estimatedHours: 2,
-        deadline: '2024-01-23',
-        description: 'Verify housing conditions and safety requirements for emergency assistance',
-        requirements: ['Valid ID', 'Safety certification preferred'],
-        skillsRequired: ['Building Assessment', 'Documentation'],
-        posted: '2024-01-21T09:15:00Z',
-        applicants: 5,
-        maxVolunteers: 1
-      },
-      {
-        id: 'task-4',
-        title: 'Family Situation Assessment',
-        organization: 'Family Support Network',
-        organizationRating: 4.8,
-        location: 'South District',
-        urgency: 'medium',
-        category: 'verification',
-        estimatedHours: 3,
-        deadline: '2024-01-30',
-        description: 'Conduct comprehensive family needs assessment for emergency assistance',
-        requirements: ['Social work background preferred', 'Background check required'],
-        skillsRequired: ['Interview Skills', 'Empathy', 'Documentation'],
-        posted: '2024-01-18T11:00:00Z',
-        applicants: 15,
-        maxVolunteers: 2
-      },
-      {
-        id: 'task-5',
-        title: 'Community Event Support',
-        organization: 'Community Centers United',
-        organizationRating: 4.5,
-        location: 'Central District',
-        urgency: 'low',
-        category: 'community',
-        estimatedHours: 6,
-        deadline: '2024-02-05',
-        description: 'Support community outreach event and assist with verification booths',
-        requirements: ['Friendly personality', 'Reliable transportation'],
-        skillsRequired: ['Customer Service', 'Organization'],
-        posted: '2024-01-17T16:45:00Z',
-        applicants: 22,
-        maxVolunteers: 5
-      }
-    ];
+    // Build query filter
+    const filter = {};
+    
+    // Filter by status
+    if (status === 'available') {
+      filter.$or = [
+        { assignedTo: { $exists: false } },
+        { assignedTo: null },
+        { assignedTo: session.user.id, status: { $in: ['assigned', 'in_progress'] } }
+      ];
+      filter.status = { $in: ['pending', 'assigned', 'in_progress'] };
+      filter.deadline = { $gte: new Date() };
+    } else if (status === 'my_tasks') {
+      filter.assignedTo = session.user.id;
+    }
 
     // Apply filters
     if (category && category !== 'all') {
-      tasks = tasks.filter(task => task.category === category);
+      filter.type = category;
     }
+    
     if (urgency && urgency !== 'all') {
-      tasks = tasks.filter(task => task.urgency === urgency);
+      filter.priority = urgency;
     }
-    if (location) {
-      tasks = tasks.filter(task => 
-        task.location.toLowerCase().includes(location.toLowerCase())
-      );
-    }
+    
     if (search) {
-      tasks = tasks.filter(task =>
-        task.title.toLowerCase().includes(search.toLowerCase()) ||
-        task.description.toLowerCase().includes(search.toLowerCase()) ||
-        task.organization.toLowerCase().includes(search.toLowerCase())
-      );
+      filter.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } }
+      ];
     }
 
-    return NextResponse.json({ tasks });
+    // Location filter (simplified - in real app, use geo queries)
+    if (location) {
+      filter['location.city'] = { $regex: location, $options: 'i' };
+    }
+
+    // Get tasks from database
+    const tasks = await Task.find(filter)
+      .populate('campaign', 'title organization location rating')
+      .populate('createdBy', 'name organization')
+      .populate('assignedTo', 'name')
+      .sort({ priority: -1, deadline: 1, createdAt: -1 })
+      .limit(limit)
+      .skip((page - 1) * limit)
+      .lean();
+
+    // Get total count for pagination
+    const totalTasks = await Task.countDocuments(filter);
+
+    // Format tasks for frontend
+    const formattedTasks = tasks.map(task => ({
+      id: task._id.toString(),
+      title: task.title,
+      description: task.description,
+      organization: task.campaign?.organization || task.createdBy?.organization || 'Unknown',
+      organizationRating: task.campaign?.rating || 4.5,
+      location: task.location?.address || task.campaign?.location?.address || 'Remote',
+      urgency: task.priority,
+      category: task.type,
+      estimatedHours: task.estimatedHours || 0,
+      deadline: task.deadline?.toISOString().split('T')[0] || null,
+      requirements: task.requirements || [],
+      skillsRequired: task.skillsRequired || [],
+      posted: task.createdAt?.toISOString(),
+      status: task.status,
+      progress: task.progress || 0,
+      assignedTo: task.assignedTo ? {
+        id: task.assignedTo._id?.toString() || task.assignedTo.toString(),
+        name: task.assignedTo.name
+      } : null,
+      campaign: task.campaign ? {
+        id: task.campaign._id.toString(),
+        title: task.campaign.title
+      } : null,
+      actualHours: task.actualHours || 0,
+      maxVolunteers: 1, // For now, assuming 1 volunteer per task
+      applicants: 0 // This would need a separate tracking system
+    }));
+
+    return NextResponse.json({
+      tasks: formattedTasks,
+      pagination: {
+        total: totalTasks,
+        page,
+        limit,
+        pages: Math.ceil(totalTasks / limit),
+        hasMore: page * limit < totalTasks
+      }
+    });
   } catch (error) {
     console.error('Tasks API error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ 
+      error: 'Internal server error',
+      details: error.message 
+    }, { status: 500 });
   }
 }
 
+// Apply for a task
 export async function POST(request) {
   try {
     const session = await getServerSession(authOptions);
@@ -142,15 +135,57 @@ export async function POST(request) {
 
     const { taskId, message } = await request.json();
 
-    // Mock application submission - replace with actual database logic
-    console.log(`Volunteer ${session.user.id} applied for task ${taskId} with message: ${message}`);
+    if (!taskId) {
+      return NextResponse.json({ error: 'Task ID is required' }, { status: 400 });
+    }
 
-    return NextResponse.json({ 
-      success: true, 
-      message: 'Application submitted successfully' 
+    await connectDB();
+
+    // Check if task exists and is available
+    const task = await Task.findById(taskId);
+    
+    if (!task) {
+      return NextResponse.json({ error: 'Task not found' }, { status: 404 });
+    }
+
+    if (task.assignedTo && task.assignedTo.toString() !== session.user.id) {
+      return NextResponse.json({ error: 'Task already assigned' }, { status: 400 });
+    }
+
+    if (task.status === 'completed' || task.status === 'cancelled') {
+      return NextResponse.json({ error: 'Task is no longer available' }, { status: 400 });
+    }
+
+    // Assign task to volunteer
+    const updatedTask = await Task.findByIdAndUpdate(
+      taskId,
+      {
+        assignedTo: session.user.id,
+        status: 'assigned',
+        actualStartDate: new Date()
+      },
+      { new: true }
+    ).populate('campaign', 'title');
+
+    // TODO: Create notification for admin about task assignment
+    // TODO: Log this action in audit trail
+
+    return NextResponse.json({
+      success: true,
+      message: 'Successfully applied for task',
+      task: {
+        id: updatedTask._id.toString(),
+        title: updatedTask.title,
+        status: updatedTask.status,
+        assignedDate: updatedTask.actualStartDate?.toISOString()
+      }
     });
+
   } catch (error) {
     console.error('Task application error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ 
+      error: 'Internal server error',
+      details: error.message 
+    }, { status: 500 });
   }
 }

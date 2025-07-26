@@ -1,11 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import connectDB from '@/lib/mongodb';
 
 export async function GET(
-  request: NextRequest,
-  { params }: { params: { id: string } }
+  request,
+  { params }
 ) {
   try {
     const session = await getServerSession(authOptions);

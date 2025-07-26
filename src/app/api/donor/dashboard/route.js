@@ -1,14 +1,16 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import connectDB from '@/lib/mongodb';
-import User from '@/models/User';
+import User from '@/lib/models/User';
+import Campaign from '@/lib/models/Campaign';
+import Donation from '@/lib/models/Donation';
 
-export async function GET(request: NextRequest) {
+export async function GET(request) {
   try {
     const session = await getServerSession(authOptions);
     
-    if (!session || session.user.role !== 'DONOR') {
+    if (!session || session.user.role !== 'donor') {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
@@ -26,88 +28,101 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Mock data for dashboard - In a real app, this would come from actual donation/campaign collections
+    // Get donor's actual donations
+    const donorDonations = await Donation.find({ 
+      donor: session.user.id,
+      paymentStatus: 'completed'
+    })
+    .populate('campaign', 'title category')
+    .sort({ createdAt: -1 });
+
+    // Calculate real stats
+    const totalDonations = donorDonations.length;
+    const totalAmount = donorDonations.reduce((sum, donation) => sum + donation.amount, 0);
+    const campaignsSupported = [...new Set(donorDonations.map(d => d.campaign._id.toString()))].length;
+
+    // Get donor's favorite campaigns (assuming we have a favorites field in User model or separate Favorites model)
+    const favoriteCampaignIds = donor.favoriteCampaigns || [];
+    const favoriteCampaigns = await Campaign.find({
+      _id: { $in: favoriteCampaignIds },
+      status: { $in: ['approved', 'live'] }
+    }).select('title category');
+
+    // Get donor's submitted proposals (campaigns created by the donor)
+    const proposalsSubmitted = await Campaign.countDocuments({ 
+      createdBy: session.user.id 
+    });
+
+    // Calculate impact score (can be based on total donations, campaigns supported, etc.)
+    const impactScore = Math.round(totalAmount / 10) + (campaignsSupported * 50) + (proposalsSubmitted * 100);
+
+    // Format recent donations
+    const recentDonations = donorDonations.slice(0, 5).map(donation => {
+      const daysDiff = Math.floor((new Date() - new Date(donation.createdAt)) / (1000 * 60 * 60 * 24));
+      let timeAgo;
+      if (daysDiff === 0) timeAgo = 'Today';
+      else if (daysDiff === 1) timeAgo = '1 day ago';
+      else if (daysDiff < 7) timeAgo = `${daysDiff} days ago`;
+      else if (daysDiff < 30) timeAgo = `${Math.floor(daysDiff / 7)} weeks ago`;
+      else timeAgo = `${Math.floor(daysDiff / 30)} months ago`;
+
+      return {
+        id: donation._id,
+        campaignTitle: donation.campaign.title,
+        amount: donation.amount,
+        date: donation.createdAt.toISOString().split('T')[0],
+        status: donation.paymentStatus,
+        timeAgo
+      };
+    });
+
+    // Get recommended campaigns (exclude campaigns user already donated to)
+    const donatedCampaignIds = donorDonations.map(d => d.campaign._id);
+    const recommendedCampaigns = await Campaign.find({
+      _id: { $nin: donatedCampaignIds },
+      status: { $in: ['approved', 'live'] },
+      endDate: { $gt: new Date() }
+    })
+    .sort({ 
+      urgency: -1, // Prioritize urgent campaigns
+      createdAt: -1 
+    })
+    .limit(3)
+    .select('title category goalAmount raisedAmount endDate urgency');
+
+    // Format recommended campaigns
+    const formattedRecommended = recommendedCampaigns.map(campaign => {
+      const daysLeft = Math.ceil((new Date(campaign.endDate) - new Date()) / (1000 * 60 * 60 * 24));
+      return {
+        id: campaign._id,
+        title: campaign.title,
+        category: campaign.category,
+        raised: campaign.raisedAmount || 0,
+        goal: campaign.goalAmount,
+        daysLeft: Math.max(0, daysLeft),
+        urgency: campaign.urgency || 'Medium'
+      };
+    });
+
+    // Format favorite campaigns
+    const formattedFavorites = favoriteCampaigns.map(campaign => ({
+      id: campaign._id,
+      title: campaign.title,
+      category: campaign.category
+    }));
+
     const dashboardData = {
       stats: {
-        totalDonations: 25,
-        campaignsSupported: 12,
-        totalAmount: 2450.00,
-        impactScore: 850,
-        proposalsSubmitted: 3,
-        favoriteCampaigns: 8
+        totalDonations,
+        campaignsSupported,
+        totalAmount,
+        impactScore,
+        proposalsSubmitted,
+        favoriteCampaigns: favoriteCampaigns.length
       },
-      recentDonations: [
-        {
-          id: 'don_001',
-          campaignTitle: 'Emergency Surgery for Maria',
-          amount: 150,
-          date: '2024-07-15',
-          status: 'completed',
-          timeAgo: '2 days ago'
-        },
-        {
-          id: 'don_002',
-          campaignTitle: 'School Books for Rural Children',
-          amount: 75,
-          date: '2024-07-10',
-          status: 'completed',
-          timeAgo: '1 week ago'
-        },
-        {
-          id: 'don_003',
-          campaignTitle: 'Clean Water Project',
-          amount: 200,
-          date: '2024-07-05',
-          status: 'completed',
-          timeAgo: '2 weeks ago'
-        }
-      ],
-      recommendedCampaigns: [
-        {
-          id: 'camp_001',
-          title: 'Help Build a Community Center',
-          category: 'Community',
-          raised: 15000,
-          goal: 25000,
-          daysLeft: 30,
-          urgency: 'Medium'
-        },
-        {
-          id: 'camp_002',
-          title: 'Medical Treatment for Children',
-          category: 'Medical',
-          raised: 8500,
-          goal: 12000,
-          daysLeft: 15,
-          urgency: 'High'
-        },
-        {
-          id: 'camp_003',
-          title: 'Educational Scholarships',
-          category: 'Education',
-          raised: 3200,
-          goal: 10000,
-          daysLeft: 45,
-          urgency: 'Low'
-        }
-      ],
-      favoriteCampaigns: [
-        {
-          id: 'camp_001',
-          title: 'Help Build a Community Center',
-          category: 'Community'
-        },
-        {
-          id: 'camp_004',
-          title: 'Animal Shelter Support',
-          category: 'Animal Welfare'
-        },
-        {
-          id: 'camp_005',
-          title: 'Disaster Relief Fund',
-          category: 'Emergency'
-        }
-      ]
+      recentDonations,
+      recommendedCampaigns: formattedRecommended,
+      favoriteCampaigns: formattedFavorites
     };
 
     return NextResponse.json(dashboardData, { status: 200 });

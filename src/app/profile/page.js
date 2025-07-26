@@ -57,26 +57,25 @@ export default function ProfileSettings() {
   });
 
   useEffect(() => {
-    // TODO: Re-enable authentication check once NextAuth is installed
-    // For now, redirect to signin page since we don't have session management
-    router.push('/auth/signin?message=Please sign in to access your profile');
+    if (status === 'loading') return;
     
-    // if (status === 'unauthenticated') {
-    //   router.push('/auth/signin');
-    // }
+    if (status === 'unauthenticated') {
+      router.push('/auth/signin');
+      return;
+    }
     
-    // if (session?.user) {
-    //   setProfileData({
-    //     firstName: session.user.firstName || '',
-    //     lastName: session.user.lastName || '',
-    //     email: session.user.email || '',
-    //     phone: session.user.phone || '',
-    //     organization: session.user.organization || '',
-    //     bio: session.user.bio || '',
-    //     profilePicture: session.user.image || '',
-    //   });
-    // }
-  }, [router]);
+    if (session?.user) {
+      setProfileData({
+        firstName: session.user.firstName || '',
+        lastName: session.user.lastName || '',
+        email: session.user.email || '',
+        phone: session.user.phone || '',
+        organization: session.user.organization || '',
+        bio: session.user.bio || '',
+        profilePicture: session.user.image || '',
+      });
+    }
+  }, [session, status, router]);
 
   const handleProfileChange = (e) => {
     setProfileData({

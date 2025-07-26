@@ -105,6 +105,12 @@ const userSchema = new mongoose.Schema({
     lastLogin: Date
   },
   
+  // Donor-specific fields
+  favoriteCampaigns: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Campaign'
+  }],
+  
   // Preferences
   preferences: {
     notifications: {
@@ -123,6 +129,20 @@ const userSchema = new mongoose.Schema({
     },
     language: { type: String, default: 'en' },
     timezone: { type: String, default: 'UTC' }
+  },
+  
+  // Detailed notification settings for volunteers
+  notificationSettings: {
+    email: { type: Boolean, default: true },
+    push: { type: Boolean, default: true },
+    sms: { type: Boolean, default: false },
+    taskUpdates: { type: Boolean, default: true },
+    newMessages: { type: Boolean, default: true },
+    verificationRequests: { type: Boolean, default: true },
+    systemAlerts: { type: Boolean, default: true },
+    weeklyDigest: { type: Boolean, default: true },
+    immediateAlerts: { type: Boolean, default: true },
+    dailyDigest: { type: Boolean, default: false }
   },
   
   // Security
